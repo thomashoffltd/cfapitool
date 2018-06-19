@@ -1,0 +1,249 @@
+#!/bin/bash
+
+#This function prints the help/usage information
+function usage()
+{
+	cat << HEREDOC
+	This tool is for creating/updating/deleting/showing DNS records in cloudflare.
+	
+	Credentials can be stored by creating ~/.cfapitoolcreds with the these variables:
+	apikey_str=2dcfffaff0ff9ff7cf7ffffff1ffff5fffafd
+	email_str="example@example.com"
+
+	Created by thomashoffltd@gmail.com
+
+	Usage: $progname [--apikey APIKEY_STR] [--email EMAIL_STR] [--domain DOMAIN_STR]
+			 [--type TYPE_STR] [--name NAME_STR] [--CONTENT CONTENT_STR] [--ttl TTL_STR] 
+			 [--priority PRIORITY_STR] [--proxied PROXIED_STR] 
+			 [--create | --delete | --update | --show] 
+			 [--verbose]
+
+	Arguments:
+	-h, --help			show this help message and exit
+	-a, --apikey APIKEY_STR		specify Cloudflare apikey
+	-e, --email EMAIL_STR		specify email address
+	-d, --domain DOMAIN_STR		specify domain
+	-t, --type TYPE_STR		specify DNS record type.
+						default: A
+						valid values: A, AAAA, CNAME, TXT, SRV, LOC, MX, NS, SPF read only
+	-n, --name NAME_STR		specify DNS record name. 
+						default: "example.com"
+						max length: 255
+	-c, --content CONTENT_STR	specify DNS record content. 
+						default: "127.0.0.1"
+	-T, --ttl TTL_STR			specify time to live for DNS record. 
+						default: 120
+						min value: 120
+						max value: 2147483647
+	-p, --priority	PRIORITY_STR	Used with some records like MX and SRV to determine priority.
+						default: 0
+						min value: 0
+						max value: 65535
+	-P, --proxied	PROXIED_STR	Whether the record is receiving the performance and security benefits of Cloudflare. 
+						default: false
+						valid values: (true,false)
+	-C, --create			Create DNS record
+	-D, --delete			Delete DNS record
+	-U, --update			Update DNS record
+	-S, --show			Show DNS record
+	-v, --verbose			increase the verbosity of the bash script
+
+	Example Usage:
+	$progname --domain example.com -t A -n blah.example.com -c 192.168.252.128 -T 120 -p 0 -P false  -C -v -h
+
+	This will create a DNS "A" record for "blah.example.com" with an IP address of "192.168.252.128".
+
+HEREDOC
+}  
+
+#This function creatrs the DNS record
+function creatednsrecord()
+{
+	# This will automatically grab the zone id.
+	zone_str=$(curl -X GET \
+	-H "X-Auth-Email: $email_str" \
+	-H "X-Auth-Key: $apikey_str" \
+	-H "Content-Type: application/json" \
+	"https://api.cloudflare.com/client/v4/zones?name=$domain_str&status=active&page=1&per_page=20&order=status&direction=desc&match=all" 2>> /dev/null \
+	| grep -Eo -m 1 "[0-9a-f]{32}"  | grep -Eo -m 1 "[0-9a-f]{32}")
+
+	# This will create the DNS record.
+	curl -H "X-Auth-Email: $email_str" \
+	-H "X-Auth-Key: $apikey_str" \
+	-H "Content-Type: application/json" \
+	-X POST "https://api.cloudflare.com/client/v4/zones/$zone_str/dns_records" \
+	--data "{\"type\":\"$type_str\",\"name\":\"$name_str\",\"content\":\"$content_str\",\"ttl\":$ttl_str,\"priority\":$priority_str,\"proxied\":$proxied_str}" 2>> /dev/null | python -m json.tool
+}
+
+#This function shows the DNS record
+function showdnsrecord()
+{
+	# This will automatically grab the zone id.
+	zone_str=$(curl -X GET \
+	-H "X-Auth-Email: $email_str" \
+	-H "X-Auth-Key: $apikey_str" \
+	-H "Content-Type: application/json" \
+	"https://api.cloudflare.com/client/v4/zones?name=$domain_str&status=active&page=1&per_page=20&order=status&direction=desc&match=all" 2>> /dev/null \
+	| grep -Eo -m 1 "[0-9a-f]{32}"  | grep -Eo -m 1 "[0-9a-f]{32}")
+	
+	# This will display the current DNS record.
+	curl -X GET \
+	-H "X-Auth-Email: $email_str" \
+	-H "X-Auth-Key: $apikey_str" \
+	-H "Content-Type: application/json" \
+	"https://api.cloudflare.com/client/v4/zones/$zone_str/dns_records?name=$name_str&page=1&per_page=20&order=type&direction=desc&match=all" 2>> /dev/null | python -m json.tool
+}
+
+#This function will update the DNS record
+function updatednsrecord()
+{
+	# This will automatically grab the zone id.
+	zone_str=$(curl -X GET \
+	-H "X-Auth-Email: $email_str" \
+	-H "X-Auth-Key: $apikey_str" \
+	-H "Content-Type: application/json" \
+	"https://api.cloudflare.com/client/v4/zones?name=$domain_str&status=active&page=1&per_page=20&order=status&direction=desc&match=all" 2>> /dev/null \
+	| grep -Eo -m 1 "[0-9a-f]{32}"  | grep -Eo -m 1 "[0-9a-f]{32}")
+
+	# This will get the DNS ID from cloudflare
+	dns_str=$(curl -X GET \
+	-H "X-Auth-Email: $email_str" \
+	-H "X-Auth-Key: $apikey_str" \
+	-H "Content-Type: application/json" \
+	"https://api.cloudflare.com/client/v4/zones/$zone_str/dns_records?type=$type_str&name=$name_str&page=1&per_page=20&order=type&direction=desc&match=all" 2>> /dev/null \
+	| grep -Eo -m 1 "[0-9a-f]{32}"  | grep -Eo -m 1 "[0-9a-f]{32}")
+	
+	# This will update the DNS record.
+	curl -H "X-Auth-Email: $email_str" \
+	-H "X-Auth-Key: $apikey_str" \
+	-H "Content-Type: application/json" \
+	-X PUT "https://api.cloudflare.com/client/v4/zones/$zone_str/dns_records/$dns_str" \
+	--data "{\"type\":\"$type_str\",\"name\":\"$name_str\",\"content\":\"$content_str\",\"ttl\":$ttl_str,\"priority\":$priority_str,\"proxied\":$proxied_str}" 2>> /dev/null | python -m json.tool
+
+}
+
+# This function will delete the DNS record
+function deletednsrecord()
+{
+	# This will automatically grab the zone id.
+	zone_str=$(curl -X GET \
+	-H "X-Auth-Email: $email_str" \
+	-H "X-Auth-Key: $apikey_str" \
+	-H "Content-Type: application/json" \
+	"https://api.cloudflare.com/client/v4/zones?name=$domain_str&status=active&page=1&per_page=20&order=status&direction=desc&match=all" 2>> /dev/null \
+	| grep -Eo -m 1 "[0-9a-f]{32}"  | grep -Eo -m 1 "[0-9a-f]{32}")
+	
+	# This will get the DNS ID from cloudflare
+	dns_str=$(curl -X GET \
+	-H "X-Auth-Email: $email_str" \
+	-H "X-Auth-Key: $apikey_str" \
+	-H "Content-Type: application/json" \
+	"https://api.cloudflare.com/client/v4/zones/$zone_str/dns_records?type=$type_str&name=$name_str&content=$content_str&page=1&per_page=20&order=type&direction=desc&match=all" 2>> /dev/null \
+	| grep -Eo -m 1 "[0-9a-f]{32}"  | grep -Eo -m 1 "[0-9a-f]{32}")
+	
+	# This will delete the DNS record.
+	curl -H "X-Auth-Email: $email_str" \
+	-H "X-Auth-Key: $apikey_str" \
+	-H "Content-Type: application/json" \
+	-X DELETE "https://api.cloudflare.com/client/v4/zones/$zone_str/dns_records/$dns_str" \
+	--data "{\"type\":\"$type_str\",\"name\":\"$name_str\",\"content\":\"$content_str\",\"ttl\":$ttl_str,\"priority\":$priority_str,\"proxied\":$proxied_str}" 2>> /dev/null | python -m json.tool
+
+}
+
+#This function prints all the variables specified.
+function printverbose()
+{
+	cat <<-EOM
+		apikey=$apikey_str
+		email=$email_str
+		domain=$domain_str
+		type=$type_str
+		name=$name_str
+		content=$content_str
+		ttl=$ttl_str
+		priority=$priority_str
+		proxied=$proxied_str
+		create=$create
+		delete=$delete
+		update=$update
+		show=$show
+		verbose=$verbose
+	EOM
+}
+
+# This initializes the default variables
+progname=$(basename $0)
+apikey_str=
+email_str="example@example.com"
+domain_str=example.com
+type_str=A
+name_str=example.com
+content_str=127.0.0.1
+ttl_str=120
+priority_str=0
+proxied_str=false
+create=0
+delete=0
+update=0
+show=0
+verbose=0
+
+# This will source any stored variables, such as the API key and e-mail.
+if cat ~/.cfapitoolcreds  >/dev/null 2>&1; then
+	source ~/.cfapitoolcreds
+fi
+
+# use getopt and store the output into $OPTS
+# note the use of -o for the short options, --long for the long name options
+# and a : for any option that takes a parameter
+OPTS=$(getopt -o "ha:e:d:t:n:c:T:p:P:CDUSv" --long "help,apikey:,email:,domain:,type:,name:,content:,ttl:,priority:,proxied:,create,delete,update,show,verbose" -n "$progname" -- "$@")
+if [ $? != 0 ] ; then echo "Error in command line arguments." >&2 ; usage; exit 1 ; fi
+eval set -- "$OPTS"
+
+while true; do
+  # uncomment the next line to see how shift is working
+  # echo "\$1:\"$1\" \$2:\"$2\""
+	case "$1" in
+		-h | --help ) 		usage; exit; ;;
+		-a | --apikey ) 	apikey_str="$2"; shift 2 ;;
+		-e | --email ) 		email_str="$2"; shift 2 ;;
+		-d | --domain )		domain_str="$2"; shift 2 ;;
+
+		-t | --type ) 		type_str="$2"; shift 2 ;;	
+		-n | --name ) 		name_str="$2"; shift 2 ;;
+		-c | --content ) 	content_str="$2"; shift 2 ;;
+		-T | --ttl ) 		ttl_str="$2"; shift 2 ;;
+		-p | --priority )	priority_str="$2"; shift 2 ;;
+		-P | --proxied )	proxied_str="$2"; shift 2 ;;
+	
+		-C | --create )		create=1; shift ;;
+		-D | --delete )		delete=1; shift ;;
+		-U | --update )		update=1; shift ;;
+		-S | --show )		show=1; shift ;;
+	
+		-v | --verbose )	verbose=1; shift ;;
+		-- ) shift; break ;;
+		* ) break ;;
+	esac
+done
+
+if (( $verbose > 0 )); then
+	printverbose
+fi
+
+if (( $create > 0 )); then
+	creatednsrecord
+fi
+
+if (( $show > 0 )); then
+	showdnsrecord
+fi
+
+if (( $update > 0 )); then
+	updatednsrecord
+fi
+
+if (( $delete > 0 )); then
+	deletednsrecord
+fi
+
